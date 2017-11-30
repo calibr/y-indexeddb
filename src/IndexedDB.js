@@ -1,7 +1,5 @@
 /* global Y, IDBKeyRange, indexedDB, localStorage, IDBRequest, IDBOpenDBRequest, IDBCursor, IDBCursorWithValue, addEventListener */
 'use strict'
-// Thx to @jed for this script https://gist.github.com/jed/982883
-function generateGuid(a){return a?(a^Math.random()*16>>a/4).toString(16):([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,generateGuid)} // eslint-disable-line
 
 function extend (Y) {
   Y.requestModules(['memory']).then(function () {
@@ -140,6 +138,9 @@ function extend (Y) {
           this.idbVersion = 5
         }
         var store = this
+        if(!options.userId) {
+          throw new Error("userId is required")
+        }
         // initialize database!
         this.requestTransaction(function * () {
           store.db = yield indexedDB.open(options.namespace, store.idbVersion)
@@ -160,70 +161,15 @@ function extend (Y) {
           }
         })
         this.requestTransaction(function * () {
-          // this should be executed after the previous two defined transactions
-          // after we computed the upgrade event (see `yield indexedDB.open(..)`), we can check if userid is still stored on localstorage
-          var uid = null
-          if (typeof localStorage !== 'undefined') {
-            uid = localStorage[JSON.stringify(['Yjs_indexeddb', options.namespace])]
-          }
-          if (uid != null) {
-            store.setUserId(uid)
-            if (typeof localStorage !== 'undefined') {
-              var nextuid = JSON.parse(uid)
-              nextuid[1] = nextuid[1] + 1
-              localStorage[JSON.stringify(['Yjs_indexeddb', options.namespace])] = JSON.stringify(nextuid)
-            }
-          } else {
-            // wait for a 200ms before setting a random user id
-            setTimeout(function () {
-              if (store.userId == null) {
-                // the user is probably offline, so that the connector can't get a user id
-                store.setUserId(generateGuid()) // TODO: maybe it is best to always use a generated uid
-              }
-            }, 200)
-          }
-          // copy from persistent Store to non persistent StoreClone. (there could already be content in Store)
-          /*
-          yield* this._ds.iterate(this, null, null, function * (o) {
-            yield* this.ds.put(o, true)
-          })
-          */
+          // custom code, just set userId that is passed in the options
+          store.setUserId(options.userId)
         })
-        var operationsToAdd = []
-        this.communicationObserver = function (op) {
-          operationsToAdd.push(op)
-          if (operationsToAdd.length === 1) {
-            store.requestTransaction(function * () {
-              var _toAdd = []
-              /*
-              There is a special case (see issue y-js/y-indexeddb#2) which we need to handle:
-              Assume a user creates a new type (lets say an Array) and then inserts something in it. Assume both operations are in operationsToAdd.
-              Since a type is initialized first, it already knows about the insertion, and we no longer need to call .operationAdded.
-              If we don't handle this case the type inserts the same operation twice.
-              => So wee need to filter out the operations whose parent is also inclduded in operationsToAdd!
-              */
-              for (var i = 0; i < operationsToAdd.length; i++) {
-                var op = operationsToAdd[i]
-                if (op.parent == null || operationsToAdd.every(function (p) {
-                  return !Y.utils.compareIds(p.id, op.parent)
-                })) {
-                  _toAdd.push(op)
-                }
-              }
-              operationsToAdd = []
-
-              for (i = 0; i < _toAdd.length; i++) {
-                yield* this.store.operationAdded(this, _toAdd[i], true)
-              }
-            })
-          }
-        }
-        Y.utils.localCommunication.addObserver(this.options.namespace, this.communicationObserver)
       }
       * operationAdded (transaction, op, noAdd) {
         yield* super.operationAdded(transaction, op)
         if (!noAdd) {
-          Y.utils.localCommunication.broadcast(this.options.namespace, op)
+          // broadcast to other externsion's pages here
+          //Y.utils.localCommunication.broadcast(this.options.namespace, op)
         }
       }
       transact (makeGen) {
@@ -303,53 +249,7 @@ function extend (Y) {
         return Promise.resolve()
       }
     }
-    if (Y.utils.localCommunication == null) {
-      // localCommunication uses localStorage to communicate with all tabs / windows
-      // Using pure localStorage does not call the event listener on the tab the event is created on.
-      // Using this implementation the event is also called on the tab the event is created on.
-      Y.utils.localCommunication = {
-        observer: {},
-        addObserver: function (room, f) {
-          var listener = this.observer[room]
-          if (listener == null) {
-            listener = []
-            this.observer[room] = listener
-          }
-          listener.push(f)
-        },
-        removeObserver: function (room, f) {
-          this.observer[room] = this.observer[room].filter(function (g) { return f !== g })
-        },
-        broadcast: function (room, m) {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(JSON.stringify(['__YJS__', room]), JSON.stringify(m))
-          }
-          this.observer[room].map(function (f) {
-            f(m)
-          })
-        }
-      }
-      if (typeof localStorage !== 'undefined') {
-        addEventListener('storage', function (event) {
-          var room
-          try {
-            var parsed = JSON.parse(event.key)
-            if (parsed[0] === '__YJS__') {
-              room = parsed[1]
-            } else {
-              return
-            }
-          } catch (e) { return }
-          var listener = Y.utils.localCommunication.observer[room]
-          if (listener != null) {
-            listener.map(function (f) {
-              f(JSON.parse(event.newValue))
-            })
-          }
-        })
-      }
-    }
-    Y.extend('indexeddb', OperationStore)
+    Y.extend('indexeddb-webext', OperationStore)
   })
 }
 

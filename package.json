@@ -1,5 +1,5 @@
 {
-  "name": "y-indexeddb",
+  "name": "y-indexeddb-webext",
   "version": "8.1.9",
   "description": "IndexedDB database adapter for Yjs",
   "main": "./src/IndexedDB.js",
@@ -7,10 +7,6 @@
     "test": "node --harmony ./node_modules/.bin/gulp test",
     "lint": "./node_modules/.bin/standard"
   },
-  "pre-commit": [
-    "lint",
-    "test"
-  ],
   "standard": {
     "parser": "babel-eslint",
     "ignore": [
